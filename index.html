@@ -5,26 +5,40 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>電話番号 部署判別</title>
 <style>
-  :root { --bg:#111; --fg:#f4f4f4; --sub:#aaa; --accent:#2e9bff; --ok:#27c26c; --warn:#f0b429; --ng:#ff5a5a; --panel:#1d1d1f; }
+  :root { --bg:#111; --fg:#f4f4f4; --sub:#aaa; --accent:#2e9bff; --ok:#27c26c; --warn:#f0b429; --ng:#ff5a5a; --panel:#1d1d1f; --line:#3a3a3c; color-scheme: dark; }
   * { box-sizing: border-box; }
   html, body { margin:0; background:var(--bg); color:var(--fg); font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
   body { padding: 12px 12px 24px; max-width: 720px; margin: 0 auto; }
   h1 { font-size: 18px; margin: 4px 0 10px; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  button, .filebtn { font-size:16px; padding:10px 14px; border-radius:10px; border:0; background:var(--accent); color:#fff; cursor:pointer; }
+  button, .filebtn { font-size:16px; padding:10px 14px; border-radius:10px; border:0; background:var(--accent); color:#fff; cursor:pointer; font-family:inherit; }
+  button.big { font-size:18px; padding:12px 18px; flex:1 1 auto; }
+  button.secondary, .filebtn.secondary { background:var(--line); }
   button:disabled, .filebtn[aria-disabled="true"] { background:#555; color:#999; }
-  #preview { display:none; width:100%; max-height:200px; object-fit:contain; margin-top:10px; border-radius:12px; background:#000; }
-  button.secondary { background:#3a3a3c; }
+  button.on { background:var(--warn); color:#000; }
   .filebtn input { display:none; }
-  .msg { font-size:14px; color:var(--sub); margin:6px 0; min-height:1.2em; }
+  .msg { font-size:14px; color:var(--sub); margin:6px 0; }
+  .msg:empty { display:none; }
   .msg.err { color:var(--ng); }
-  #stage { position:relative; width:100%; margin-top:10px; background:#000; border-radius:12px; overflow:hidden; aspect-ratio: 3 / 4; display:none; }
+  #preview { display:none; width:100%; max-height:200px; object-fit:contain; margin-top:10px; border-radius:12px; background:#000; }
+  #stage { position:relative; width:100%; margin-top:10px; background:#000; border-radius:12px; overflow:hidden; aspect-ratio: 2 / 1; display:none; touch-action:manipulation; }
   #stage.on { display:block; }
-  #video { width:100%; height:100%; object-fit:cover; display:block; }
-  #guide { position:absolute; left:8%; width:84%; top:42%; height:16%; border:3px solid var(--warn); border-radius:8px; box-shadow:0 0 0 2000px rgba(0,0,0,.35); pointer-events:none; }
-  #guide.hit { border-color: var(--ok); }
-  #guideLabel { position:absolute; left:0; right:0; top:calc(42% - 26px); text-align:center; font-size:13px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; }
-  #result { margin-top:12px; background:var(--panel); border-radius:12px; padding:14px; min-height:110px; }
+  #video, #snap { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
+  #snap { display:none; }
+  #stage.frozen #snap { display:block; }
+  #guide { position:absolute; left:5%; width:90%; top:22%; height:56%; border:3px solid var(--warn); border-radius:8px; box-shadow:0 0 0 2000px rgba(0,0,0,.35); pointer-events:none; }
+  #stage.frozen #guide { border-color: var(--ok); box-shadow:0 0 0 2000px rgba(0,0,0,.55); }
+  #stage.frozen.nomatch #guide { border-color: var(--ng); }
+  #guideLabel { position:absolute; left:0; right:0; top:4%; text-align:center; font-size:12px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; }
+  #frozenLabel { position:absolute; left:0; right:0; bottom:3%; text-align:center; font-size:13px; font-weight:700; color:#fff; text-shadow:0 1px 3px #000; pointer-events:none; display:none; }
+  #stage.frozen #frozenLabel { display:block; }
+  #stage.frozen #guideLabel { display:none; }
+  #camCtl { display:none; margin-top:8px; }
+  #camCtl.on { display:flex; }
+  #zoomWrap { display:none; align-items:center; gap:6px; font-size:13px; color:var(--sub); flex:1 1 140px; }
+  #zoomWrap.on { display:flex; }
+  #zoom { flex:1; }
+  #result { margin-top:10px; background:var(--panel); border-radius:12px; padding:14px; min-height:100px; }
   #result .read { font-size:13px; color:var(--sub); word-break:break-all; }
   .card { border-left:6px solid var(--ok); padding:6px 0 6px 12px; margin-top:8px; }
   .card.partial { border-left-color: var(--warn); }
@@ -33,9 +47,18 @@
   .card .tel { font-size:15px; color:var(--sub); margin-top:2px; }
   .card .tag { font-size:12px; color:var(--warn); }
   .none { font-size:18px; color:var(--sub); margin-top:8px; }
+  .none.ng { color:var(--ng); font-weight:700; }
+  #history { margin-top:10px; font-size:14px; }
+  #history:empty { display:none; }
+  #history h2 { font-size:13px; color:var(--sub); font-weight:400; margin:0 0 4px; }
+  #history ol { list-style:none; margin:0; padding:0; }
+  #history li { display:flex; gap:8px; padding:6px 0; border-top:1px solid var(--line); }
+  #history li .t { color:var(--sub); font-variant-numeric: tabular-nums; flex:none; }
+  #history li .v { min-width:0; overflow-wrap:anywhere; }
+  #history li.ng .v { color:var(--ng); }
   #manual { width:100%; font-size:18px; padding:10px; border-radius:10px; border:1px solid #444; background:#000; color:var(--fg); }
   details { margin-top:14px; color:var(--sub); font-size:13px; }
-  canvas { display:none; }
+  #cv { display:none; }
 </style>
 </head>
 <body>
@@ -43,21 +66,31 @@
 
 <div class="row">
   <label class="filebtn">① CSVを読み込む<input type="file" id="csv" accept=".csv,text/csv,text/plain,text/comma-separated-values"></label>
-  <label class="filebtn" id="photoLbl" aria-disabled="true">② 写真で読み取る<input type="file" id="photo" accept="image/*" capture="environment" disabled></label>
-  <button id="camBtn" class="secondary" disabled>映像で読み取る</button>
-  <button id="pauseBtn" class="secondary" disabled>一時停止</button>
 </div>
 <div id="csvMsg" class="msg">CSVが未読込です。</div>
+<div class="row">
+  <button id="camBtn" class="big" disabled>② カメラで読み取る</button>
+  <label class="filebtn secondary" id="photoLbl" aria-disabled="true">写真で読み取る<input type="file" id="photo" accept="image/*" capture="environment" disabled></label>
+</div>
 <div id="ocrMsg" class="msg">OCRエンジンを準備しています…</div>
 
 <div id="stage">
   <video id="video" playsinline muted></video>
-  <div id="guideLabel">番号をこの枠に合わせてください</div>
+  <canvas id="snap"></canvas>
+  <div id="guideLabel">番号を枠に合わせてください</div>
   <div id="guide"></div>
+  <div id="frozenLabel">画面をタップすると次を読みます</div>
+</div>
+<div id="camCtl" class="row">
+  <button id="nextBtn" class="big" disabled>次を読む</button>
+  <button id="torchBtn" class="secondary" hidden>ライト</button>
+  <button id="stopBtn" class="secondary">停止</button>
+  <label id="zoomWrap">ズーム<input id="zoom" type="range"></label>
 </div>
 
 <img id="preview" alt="撮影した写真">
 <div id="result"><div class="none">ここに結果が表示されます。</div></div>
+<div id="history"></div>
 
 <div style="margin-top:12px">
   <input id="manual" type="tel" inputmode="tel" placeholder="番号を手入力して検索（ハイフン不要）">
@@ -67,9 +100,10 @@
   <summary>使い方・注意</summary>
   <p>CSVは「電話番号,名前,部署」の3列（1行目は見出し）。文字コードはUTF-8／Shift_JISどちらでも可。</p>
   <p>読み込んだCSVは端末の外へ送信されず、アプリを閉じると消えます。</p>
-  <p>緑の枠＝完全一致、黄色の線＝一部一致（読み取った数字の中に登録番号が含まれる）。</p>
-  <p>「写真で読み取る」はスマホのカメラで撮った写真から番号を探します。写真はこのアプリでは保存しません（カメラアプリによってはギャラリーに控えが残る場合があります）。</p>
-  <p>「映像で読み取る」はカメラ映像を写しっぱなしで読み取ります。ファイルの開き方によってはカメラの許可が得られず使えません。</p>
+  <p>カメラで読み取ると、登録された番号が見つかった時点で映像が止まります。画面をタップするか「次を読む」で再開します。</p>
+  <p>枠の色：緑＝登録あり、赤＝同じ番号を2回続けて読んだが未登録、黄色の線の結果＝一部一致（読み取った数字の中に登録番号が含まれる）。</p>
+  <p>番号が小さいときは、近づけるかズームを使ってください。暗いときは「ライト」が使える機種もあります。</p>
+  <p>「写真で読み取る」は撮った写真から番号を探します。写真はこのアプリでは保存しません（カメラアプリによってはギャラリーに控えが残る場合があります）。</p>
 </details>
 
 <canvas id="cv"></canvas>
@@ -234,63 +268,106 @@
       tessedit_char_whitelist: '0123456789-()+ ',
       tessedit_pageseg_mode: '7',
     });
-    $('ocrMsg').textContent = 'OCRの準備ができました。';
+    $('ocrMsg').textContent = '';
   }
 
   // ---------- カメラ ----------
   const video = $('video');
   const cv = $('cv');
   const ctx = cv.getContext('2d', { willReadFrequently: true });
-  let stream = null, running = false, paused = false, lastKey = '', busyPhoto = false;
+  const snap = $('snap');
+  const sctx = snap.getContext('2d');
+  const stage = $('stage');
+  let stream = null, track = null, running = false, frozen = false, busyPhoto = false;
+  let prevDigits = '', wakeLock = null, torchOn = false;
+  const history = [];
 
   function updateButtons() {
     const ok = !!(worker && book.length);
     $('camBtn').disabled = !ok;
     $('photo').disabled = !ok || busyPhoto;
     $('photoLbl').setAttribute('aria-disabled', String(!ok || busyPhoto));
-    $('pauseBtn').disabled = !running;
+    $('nextBtn').disabled = !frozen;
   }
+
+  function setupTrackControls() {
+    const caps = (track && track.getCapabilities) ? track.getCapabilities() : {};
+    // 連続オートフォーカス（対応機種のみ）
+    if (caps.focusMode && caps.focusMode.includes('continuous')) {
+      track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+    }
+    $('torchBtn').hidden = !caps.torch;
+    torchOn = false; $('torchBtn').classList.remove('on');
+    const z = caps.zoom;
+    if (z && z.max > z.min) {
+      const zoom = $('zoom');
+      zoom.min = z.min; zoom.max = Math.min(z.max, 8); zoom.step = z.step || 0.1;
+      const cur = (track.getSettings && track.getSettings().zoom) || z.min;
+      zoom.value = cur;
+      $('zoomWrap').classList.add('on');
+    } else {
+      $('zoomWrap').classList.remove('on');
+    }
+  }
+
+  $('zoom').addEventListener('input', (e) => {
+    if (track) track.applyConstraints({ advanced: [{ zoom: Number(e.target.value) }] }).catch(() => {});
+  });
+  $('torchBtn').addEventListener('click', () => {
+    if (!track) return;
+    torchOn = !torchOn;
+    track.applyConstraints({ advanced: [{ torch: torchOn }] }).catch(() => { torchOn = false; });
+    $('torchBtn').classList.toggle('on', torchOn);
+  });
 
   async function startCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('このブラウザ（またはこのファイルの開き方）ではカメラを使えません。');
+      throw new Error('このブラウザ（またはこのファイルの開き方）ではカメラを使えません。「写真で読み取る」を使ってください。');
     }
     stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
     });
+    track = stream.getVideoTracks()[0];
     video.srcObject = stream;
     await video.play();
-    $('stage').classList.add('on');
+    stage.classList.add('on');
+    $('camCtl').classList.add('on');
+    $('camBtn').hidden = true;
     $('preview').style.display = 'none';
-    running = true; paused = false;
-    $('camBtn').textContent = 'カメラ停止';
-    $('pauseBtn').textContent = '一時停止';
-    updateButtons();
+    setupTrackControls();
+    try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
+    running = true;
+    unfreeze();
     loop();
   }
 
   function stopCamera() {
-    running = false;
+    running = false; frozen = false;
     if (stream) stream.getTracks().forEach(t => t.stop());
-    stream = null;
-    $('stage').classList.remove('on');
-    $('camBtn').textContent = '映像で読み取る';
+    stream = null; track = null;
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+    stage.classList.remove('on', 'frozen', 'nomatch');
+    $('camCtl').classList.remove('on');
+    $('camBtn').hidden = false;
     updateButtons();
   }
 
   // 画面上のガイド枠に対応する映像部分を切り出す（object-fit: cover を考慮）
   function grabGuide() {
     const vw = video.videoWidth, vh = video.videoHeight;
-    const st = $('stage').getBoundingClientRect();
+    // 固定表示用に今のフレームを保存（OCRしたフレームと表示が一致するように）
+    if (snap.width !== vw || snap.height !== vh) { snap.width = vw; snap.height = vh; }
+    sctx.drawImage(video, 0, 0, vw, vh);
+    const st = stage.getBoundingClientRect();
     const g = $('guide').getBoundingClientRect();
     const scale = Math.max(st.width / vw, st.height / vh);
     const offX = (vw * scale - st.width) / 2, offY = (vh * scale - st.height) / 2;
     const sx = (g.left - st.left + offX) / scale, sy = (g.top - st.top + offY) / scale;
     const sw = g.width / scale, sh = g.height / scale;
-    const outH = 120, outW = Math.round(sw * outH / sh);
+    const outH = Math.min(160, Math.max(80, Math.round(sh))), outW = Math.round(sw * outH / sh);
     cv.width = outW; cv.height = outH;
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
+    ctx.drawImage(snap, sx, sy, sw, sh, 0, 0, outW, outH);
     // グレースケール + コントラスト強調
     const img = ctx.getImageData(0, 0, outW, outH), d = img.data;
     let min = 255, max = 0;
@@ -304,27 +381,66 @@
     return cv;
   }
 
+  function addHistory(res) {
+    const recs = res.exact.length ? res.exact : res.partial;
+    const now = new Date();
+    const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const v = recs.length
+      ? recs.map(r => `${r.dept} ${r.name}（${r.tel}）`).join(' / ') + (res.exact.length ? '' : ' ※一部一致')
+      : `未登録 ${res.digits}`;
+    if (history.length && history[0].v === v) return;
+    history.unshift({ t, v, ng: !recs.length });
+    history.length = Math.min(history.length, 10);
+    $('history').innerHTML = '<h2>読み取り履歴（新しい順・最大10件）</h2><ol>' +
+      history.map(h => `<li${h.ng ? ' class="ng"' : ''}><span class="t">${h.t}</span><span class="v">${esc(h.v)}</span></li>`).join('') + '</ol>';
+  }
+
+  function freeze(res) {
+    frozen = true;
+    const hit = render(res, '読み取り');
+    stage.classList.add('frozen');
+    stage.classList.toggle('nomatch', !hit);
+    if (!hit) $('result').innerHTML += '<div class="none">番号が違う場合は、画面をタップして読み直してください。</div>';
+    addHistory(res);
+    if (navigator.vibrate) navigator.vibrate(hit ? 80 : [60, 60, 60]);
+    updateButtons();
+  }
+
+  function unfreeze() {
+    frozen = false; prevDigits = '';
+    stage.classList.remove('frozen', 'nomatch');
+    $('result').innerHTML = '<div class="none">番号を枠に合わせてください…</div>';
+    updateButtons();
+  }
+
+  stage.addEventListener('click', () => { if (frozen) unfreeze(); });
+  $('nextBtn').addEventListener('click', () => { if (frozen) unfreeze(); });
+  $('stopBtn').addEventListener('click', stopCamera);
+  document.addEventListener('visibilitychange', () => { if (document.hidden && running) stopCamera(); });
+
   async function loop() {
     while (running) {
-      if (paused || video.readyState < 2) { await new Promise(r => setTimeout(r, 200)); continue; }
+      if (frozen || video.readyState < 2) { await new Promise(r => setTimeout(r, 150)); continue; }
       try {
-        const { data } = await worker.recognize(grabGuide());
-        if (!running || paused) continue;
+        const src = grabGuide();
+        const { data } = await worker.recognize(src);
+        if (!running || frozen) continue;
         const text = (data.text || '').trim();
         const res = lookup(text);
-        if (res.digits.length >= 3) {
-          const hit = render(res, '読み取り');
-          $('guide').classList.toggle('hit', hit);
-          const key = hit ? (res.exact[0] || res.partial[0]).digits : '';
-          if (hit && key !== lastKey && navigator.vibrate) navigator.vibrate(80);
-          lastKey = key;
+        if (res.exact.length) {
+          freeze(res);                                   // 登録番号と完全一致 → すぐ固定
+        } else if (res.digits.length >= 4 && res.digits === prevDigits) {
+          freeze(res);                                   // 同じ数字を2回続けて読んだ → 一部一致/未登録として固定
         } else {
-          $('guide').classList.remove('hit');
+          prevDigits = res.digits;
+          $('result').innerHTML = res.digits.length >= 3
+            ? `<div class="read">読み取り中：${esc(res.digits)}</div><div class="none">番号を枠に合わせてください…</div>`
+            : '<div class="none">番号を枠に合わせてください…</div>';
         }
       } catch (e) {
         console.error(e);
       }
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 100));
     }
   }
 
@@ -389,18 +505,13 @@
   });
 
   $('camBtn').addEventListener('click', async () => {
-    if (running) { stopCamera(); return; }
     try {
       await startCamera();
     } catch (e) {
+      stopCamera();
       $('ocrMsg').className = 'msg err';
       $('ocrMsg').textContent = 'カメラを起動できませんでした：' + (e.message || e.name);
     }
-  });
-  $('pauseBtn').addEventListener('click', () => {
-    paused = !paused;
-    if (paused) video.pause(); else video.play();
-    $('pauseBtn').textContent = paused ? '再開' : '一時停止';
   });
 
   initOcr().then(updateButtons).catch((e) => {
@@ -410,7 +521,7 @@
   });
 
   // テスト用フック
-  window.__app = { lookup, get bookSize() { return book.length; }, get ready() { return !!worker; } };
+  window.__app = { lookup, get frozen() { return frozen; }, get bookSize() { return book.length; }, get ready() { return !!worker; } };
 })();
 </script>
 </body>
