@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>電話番号 部署判別</title>
 <style>
-  :root { --bg:#111; --fg:#f4f4f4; --sub:#aaa; --accent:#2e9bff; --ok:#27c26c; --warn:#f0b429; --ng:#ff5a5a; --panel:#1d1d1f; --line:#3a3a3c; color-scheme: dark; }
+  :root { --bg:#111; --fg:#f4f4f4; --sub:#aaa; --accent:#2e9bff; --ok:#27c26c; --warn:#f0b429; --ng:#ff5a5a; --panel:#1d1d1f; --line:#3a3a3c; --dup:#ff9f1a; --okbg:rgba(39,194,108,.14); --dupbg:rgba(255,159,26,.18); --ngbg:rgba(255,90,90,.20); color-scheme: dark; }
   * { box-sizing: border-box; }
   html, body { margin:0; background:var(--bg); color:var(--fg); font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
   body { padding: 12px 12px 24px; max-width: 720px; margin: 0 auto; }
@@ -29,6 +29,7 @@
   #guide { position:absolute; left:5%; width:90%; top:22%; height:56%; border:3px solid var(--warn); border-radius:8px; box-shadow:0 0 0 2000px rgba(0,0,0,.35); pointer-events:none; }
   #stage.frozen #guide { border-color: var(--ok); box-shadow:0 0 0 2000px rgba(0,0,0,.55); }
   #stage.frozen.nomatch #guide { border-color: var(--ng); }
+  #stage.frozen.dup #guide { border-color: var(--dup); }
   #guideLabel { position:absolute; left:0; right:0; top:4%; text-align:center; font-size:12px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; }
   #frozenLabel { position:absolute; left:0; right:0; bottom:3%; text-align:center; font-size:13px; font-weight:700; color:#fff; text-shadow:0 1px 3px #000; pointer-events:none; display:none; }
   #stage.frozen #frozenLabel { display:block; }
@@ -42,6 +43,11 @@
   #zoom { flex:1; }
   #result { margin-top:10px; background:var(--panel); border-radius:12px; padding:14px; min-height:100px; }
   #result .read { font-size:13px; color:var(--sub); word-break:break-all; }
+  #result.st-ok { background:var(--okbg); box-shadow:inset 0 0 0 2px var(--ok); }
+  #result.st-dup { background:var(--dupbg); box-shadow:inset 0 0 0 2px var(--dup); }
+  #result.st-ng { background:var(--ngbg); box-shadow:inset 0 0 0 2px var(--ng); }
+  .ngmsg { font-size:26px; font-weight:700; color:var(--ng); margin-top:8px; }
+  .skipmsg { font-size:16px; font-weight:700; color:var(--dup); margin-top:8px; }
   .card { border-left:6px solid var(--ok); padding:6px 0 6px 12px; margin-top:8px; }
   .card.partial { border-left-color: var(--warn); }
   .card .dept { font-size:28px; font-weight:700; line-height:1.2; }
@@ -52,8 +58,9 @@
   .none.ng { color:var(--ng); font-weight:700; }
   .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
   .actions button { flex:1 1 40%; font-size:18px; padding:14px; }
-  .card.dup { border-left-color: var(--ng); }
-  .dupmsg { font-size:16px; font-weight:700; color:var(--ng); margin-top:8px; }
+  .card.dup { border-left-color: var(--dup); }
+  .card.dup .dept, .card.dup .name { color:var(--dup); }
+  .dupmsg { font-size:20px; font-weight:700; color:var(--dup); margin-top:8px; }
   #progress { margin-top:10px; font-size:14px; }
   #progress:empty { display:none; }
   #progress h2, #regs h2 { font-size:13px; color:var(--sub); font-weight:400; margin:0 0 4px; display:flex; justify-content:space-between; align-items:center; gap:8px; }
@@ -93,15 +100,16 @@
   <div id="guide"></div>
   <div id="frozenLabel">下のボタンで「登録」か「やり直し」を選んでください</div>
 </div>
+
+
+<img id="preview" alt="撮影した写真">
+<div id="result"><div class="none">ここに結果が表示されます。</div></div>
 <div id="camCtl" class="row">
   <button id="torchBtn" class="secondary" hidden>ライト</button>
   <button id="stopBtn" class="secondary">停止</button>
   <label class="chk"><input type="checkbox" id="skipDone" checked>登録済みは読み飛ばす</label>
   <label id="zoomWrap">ズーム<input id="zoom" type="range"></label>
 </div>
-
-<img id="preview" alt="撮影した写真">
-<div id="result"><div class="none">ここに結果が表示されます。</div></div>
 <div id="progress"></div>
 <div id="regs"></div>
 
@@ -304,17 +312,22 @@
           (done ? `<div class="dupmsg">登録済み（${hhmm(done.at)}に登録）</div>` : '') + '</div>';
       }
     } else if (res.digits) {
-      html += '<div class="none ng">CSVにない番号です</div>';
+      html += '<div class="ngmsg">CSVにない番号です</div>';
     }
     const btns = [];
     if (canReg) btns.push('<button data-act="reg">登録</button>');
     if (mode === 'camera') btns.push('<button data-act="retry" class="secondary">やり直し</button>');
     if (btns.length) html += `<div class="actions">${btns.join('')}</div>`;
     $('result').innerHTML = html;
+    const allDone = recs.length && !canReg;
+    setState(recs.length ? (allDone ? 'dup' : 'ok') : (res.digits ? 'ng' : ''));
     currentRes = res;
     return recs.length > 0;
   }
   let currentRes = null;
+  function setState(st) { $('result').className = st ? 'st-' + st : ''; }
+  // ライブ表示（固定していない間）の結果欄
+  function live(html, st) { $('result').innerHTML = html; setState(st || ''); }
   $('result').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-act]'); if (!btn) return;
     if (btn.dataset.act === 'reg' && currentRes) {
@@ -329,8 +342,8 @@
 
   $('manual').addEventListener('input', (e) => {
     const v = e.target.value;
-    if (!normDigits(v)) { $('result').innerHTML = '<div class="none">ここに結果が表示されます。</div>'; return; }
-    if (!book.length) { $('result').innerHTML = '<div class="none">先にCSVを読み込んでください</div>'; return; }
+    if (!normDigits(v)) { live('<div class="none">ここに結果が表示されます。</div>'); return; }
+    if (!book.length) { live('<div class="none">先にCSVを読み込んでください</div>'); return; }
     render(lookup(v), '手入力', 'other');
   });
 
@@ -439,7 +452,7 @@
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = null; track = null;
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
-    stage.classList.remove('on', 'frozen', 'nomatch');
+    stage.classList.remove('on', 'frozen', 'nomatch', 'dup');
     $('camCtl').classList.remove('on');
     $('camBtn').hidden = false;
     updateButtons();
@@ -457,7 +470,8 @@
     const offX = (vw * scale - st.width) / 2, offY = (vh * scale - st.height) / 2;
     const sx = (g.left - st.left + offX) / scale, sy = (g.top - st.top + offY) / scale;
     const sw = g.width / scale, sh = g.height / scale;
-    const outH = Math.min(160, Math.max(80, Math.round(sh))), outW = Math.round(sw * outH / sh);
+    // 小さい番号も潰れないよう、枠内はできるだけ元の解像度のまま読む（上限400px）
+    const outH = Math.min(400, Math.max(160, Math.round(sh))), outW = Math.round(sw * outH / sh);
     cv.width = outW; cv.height = outH;
     ctx.drawImage(snap, sx, sy, sw, sh, 0, 0, outW, outH);
     // グレースケール + コントラスト強調
@@ -478,7 +492,8 @@
     const hit = render(res, '読み取り', 'camera');
     const dup = hit && res.exact.every(r => regs.some(x => x.digits === r.digits && x.name === r.name));
     stage.classList.add('frozen');
-    stage.classList.toggle('nomatch', !hit || dup);
+    stage.classList.toggle('nomatch', !hit);
+    stage.classList.toggle('dup', dup);
     $('frozenLabel').textContent = hit && !dup ? '「登録」か「やり直し」を選んでください' : '「やり直し」で次を読みます';
     if (navigator.vibrate) navigator.vibrate(hit && !dup ? 80 : [60, 60, 60]);
     updateButtons();
@@ -486,8 +501,8 @@
 
   function unfreeze() {
     frozen = false; prevDigits = '';
-    stage.classList.remove('frozen', 'nomatch');
-    $('result').innerHTML = '<div class="none">番号を枠に合わせてください…</div>';
+    stage.classList.remove('frozen', 'nomatch', 'dup');
+    live('<div class="none">番号を枠に合わせてください…</div>');
     updateButtons();
   }
 
@@ -525,19 +540,19 @@
         if (done && $('skipDone').checked) {
           prevDigits = '';                               // 登録済みは止めずに読み飛ばす
           const at = regs.find(x => x.digits === res.digits);
-          $('result').innerHTML = `<div class="read">読み取り中：${esc(res.digits)}</div><div class="none">登録済み（${at ? hhmm(at.at) : ''}に登録）のため読み飛ばしました</div>`;
+          live(`<div class="read">読み取り中：${esc(res.digits)}</div><div class="skipmsg">登録済み（${at ? hhmm(at.at) : ''}に登録）のため読み飛ばしました</div>`);
         } else if (res.exact.length) {
           freeze(res);                                   // CSVの番号と完全一致 → すぐ固定
         } else if (cut) {
           prevDigits = '';
-          $('result').innerHTML = `<div class="read">読み取り中：${esc(res.digits)}</div><div class="none">番号全体を枠に入れてください</div>`;
+          live(`<div class="read">読み取り中：${esc(res.digits)}</div><div class="none">番号全体を枠に入れてください</div>`);
         } else if (telLengths.has(res.digits.length) && res.digits === prevDigits) {
           freeze(res);                                   // CSVと同じ桁数を2回続けて同じに読んだ → 未登録として固定
         } else {
           prevDigits = res.digits;
-          $('result').innerHTML = res.digits.length >= 3
+          live(res.digits.length >= 3
             ? `<div class="read">読み取り中：${esc(res.digits)}</div><div class="none">番号を枠に合わせてください…</div>`
-            : '<div class="none">番号を枠に合わせてください…</div>';
+            : '<div class="none">番号を枠に合わせてください…</div>');
         }
       } catch (e) {
         console.error(e);
@@ -578,7 +593,7 @@
     const pv = $('preview');
     if (pv.src) URL.revokeObjectURL(pv.src);
     pv.src = URL.createObjectURL(f); pv.style.display = 'block';
-    $('result').innerHTML = '<div class="none">写真を読み取っています…</div>';
+    live('<div class="none">写真を読み取っています…</div>');
     try {
       const bmp = await createImageBitmap(f, { imageOrientation: 'from-image' });
       const src = prepPhoto(bmp);
@@ -593,13 +608,13 @@
       }
       const res = { digits: readDigits, exact: [...found.exact], partial: [] };
       if (!res.exact.length && !readDigits) {
-        $('result').innerHTML = '<div class="none">番号を読み取れませんでした。番号を大きく、まっすぐ写して撮り直してください。</div>';
+        live('<div class="none">番号を読み取れませんでした。番号を大きく、まっすぐ写して撮り直してください。</div>');
       } else {
         if (render(res, '写真', 'other') && navigator.vibrate) navigator.vibrate(80);
       }
     } catch (e) {
       console.error(e);
-      $('result').innerHTML = '<div class="none">写真の読み取りに失敗しました：' + esc(e.message || e) + '</div>';
+      live('<div class="none">写真の読み取りに失敗しました：' + esc(e.message || e) + '</div>');
     } finally {
       await worker.setParameters({ tessedit_pageseg_mode: '7' });
       busyPhoto = false; updateButtons();
