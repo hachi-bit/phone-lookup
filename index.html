@@ -48,14 +48,24 @@
   .card .tag { font-size:12px; color:var(--warn); }
   .none { font-size:18px; color:var(--sub); margin-top:8px; }
   .none.ng { color:var(--ng); font-weight:700; }
-  #history { margin-top:10px; font-size:14px; }
-  #history:empty { display:none; }
-  #history h2 { font-size:13px; color:var(--sub); font-weight:400; margin:0 0 4px; }
-  #history ol { list-style:none; margin:0; padding:0; }
-  #history li { display:flex; gap:8px; padding:6px 0; border-top:1px solid var(--line); }
-  #history li .t { color:var(--sub); font-variant-numeric: tabular-nums; flex:none; }
-  #history li .v { min-width:0; overflow-wrap:anywhere; }
-  #history li.ng .v { color:var(--ng); }
+  .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .actions button { flex:1 1 40%; font-size:18px; padding:14px; }
+  .card.dup { border-left-color: var(--ng); }
+  .dupmsg { font-size:16px; font-weight:700; color:var(--ng); margin-top:8px; }
+  #progress { margin-top:10px; font-size:14px; }
+  #progress:empty { display:none; }
+  #progress h2, #regs h2 { font-size:13px; color:var(--sub); font-weight:400; margin:0 0 4px; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  #progress .bar { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-top:1px solid var(--line); }
+  #progress .bar .n { font-variant-numeric: tabular-nums; flex:none; }
+  #progress .bar.done .n { color:var(--ok); font-weight:700; }
+  #regs { margin-top:10px; font-size:14px; }
+  #regs:empty { display:none; }
+  #regs ol { list-style:none; margin:0; padding:0; }
+  #regs li { display:flex; gap:8px; align-items:center; padding:6px 0; border-top:1px solid var(--line); }
+  #regs li .t { color:var(--sub); font-variant-numeric: tabular-nums; flex:none; }
+  #regs li .v { min-width:0; overflow-wrap:anywhere; flex:1; }
+  #regs li button, #regs h2 button { font-size:13px; padding:4px 10px; background:var(--line); flex:none; }
+  #regs button.confirm { background:var(--ng); }
   #manual { width:100%; font-size:18px; padding:10px; border-radius:10px; border:1px solid #444; background:#000; color:var(--fg); }
   details { margin-top:14px; color:var(--sub); font-size:13px; }
   #cv { display:none; }
@@ -79,10 +89,9 @@
   <canvas id="snap"></canvas>
   <div id="guideLabel">番号を枠に合わせてください</div>
   <div id="guide"></div>
-  <div id="frozenLabel">画面をタップすると次を読みます</div>
+  <div id="frozenLabel">下のボタンで「登録」か「やり直し」を選んでください</div>
 </div>
 <div id="camCtl" class="row">
-  <button id="nextBtn" class="big" disabled>次を読む</button>
   <button id="torchBtn" class="secondary" hidden>ライト</button>
   <button id="stopBtn" class="secondary">停止</button>
   <label id="zoomWrap">ズーム<input id="zoom" type="range"></label>
@@ -90,7 +99,8 @@
 
 <img id="preview" alt="撮影した写真">
 <div id="result"><div class="none">ここに結果が表示されます。</div></div>
-<div id="history"></div>
+<div id="progress"></div>
+<div id="regs"></div>
 
 <div style="margin-top:12px">
   <input id="manual" type="tel" inputmode="tel" placeholder="番号を手入力して検索（ハイフン不要）">
@@ -100,8 +110,9 @@
   <summary>使い方・注意</summary>
   <p>CSVは「電話番号,名前,部署」の3列（1行目は見出し）。文字コードはUTF-8／Shift_JISどちらでも可。</p>
   <p>読み込んだCSVは端末の外へ送信されず、アプリを閉じると消えます。</p>
-  <p>カメラで読み取ると、登録された番号が見つかった時点で映像が止まります。画面をタップするか「次を読む」で再開します。</p>
-  <p>枠の色：緑＝登録あり、赤＝同じ番号を2回続けて読んだが未登録、黄色の線の結果＝一部一致（読み取った数字の中に登録番号が含まれる）。</p>
+  <p>カメラで読み取ると、CSVにある番号が見つかった時点で映像が止まります。「登録」で登録一覧に追加して次へ、「やり直し」で登録せずに次へ進みます。</p>
+  <p>枠の色：緑＝CSVにあり、赤＝CSVにない番号（CSVと同じ桁数の番号を2回続けて同じように読めたときだけ止まります）。番号が枠からはみ出していると止まりません。</p>
+  <p>登録一覧はこのスマホのブラウザ内に保存され、ページを閉じても残ります。「全件消去」で消せます。</p>
   <p>番号が小さいときは、近づけるかズームを使ってください。暗いときは「ライト」が使える機種もあります。</p>
   <p>「写真で読み取る」は撮った写真から番号を探します。写真はこのアプリでは保存しません（カメラアプリによってはギャラリーに控えが残る場合があります）。</p>
 </details>
@@ -128,6 +139,7 @@
   // ---------- 電話帳 ----------
   let book = [];          // {tel, name, dept, digits}
   let byDigits = new Map();
+  let telLengths = new Set();
 
   const normDigits = (s) => (s || '').normalize('NFKC').replace(/\D/g, '');
 
@@ -178,6 +190,7 @@
       if (!byDigits.has(rec.digits)) byDigits.set(rec.digits, []);
       byDigits.get(rec.digits).push(rec);
     }
+    telLengths = new Set(book.map(r => r.digits.length));
   }
 
   $('csv').addEventListener('change', async (ev) => {
@@ -188,56 +201,122 @@
       $('csvMsg').className = 'msg';
       $('csvMsg').textContent = `「${f.name}」から ${book.length} 件を読み込みました。`;
       updateButtons();
+      renderRegs();
     } catch (e) {
       $('csvMsg').className = 'msg err';
       $('csvMsg').textContent = 'CSVの読み込みに失敗しました：' + e.message;
     }
   });
 
-  // 読み取った文字列から候補を探す
+  // 読み取った文字列から登録番号を探す（完全一致のみ）
   function lookup(raw) {
     const digits = normDigits(raw);
     if (!digits) return { digits, exact: [], partial: [] };
-    const exact = byDigits.get(digits) || [];
-    let partial = [];
-    if (!exact.length) {
-      // 数字のかたまりごとにも完全一致を確認（余計な文字を拾った場合）
-      for (const g of (raw.normalize('NFKC').match(/\d[\d\-\s()]*\d/g) || [])) {
-        const d = normDigits(g);
-        if (byDigits.has(d)) return { digits, exact: byDigits.get(d), partial: [] };
-      }
-      // 読み取った数字列に登録番号が含まれるもの（4桁以上）。長い番号を優先
-      const cand = [...byDigits.keys()].filter(k => k.length >= 4 && digits.includes(k)).sort((a, b) => b.length - a.length);
-      if (cand.length) partial = byDigits.get(cand[0]);
+    if (byDigits.has(digits)) return { digits, exact: byDigits.get(digits), partial: [] };
+    // 数字のかたまりごとにも完全一致を確認（余計な文字を拾った場合）
+    for (const g of (raw.normalize('NFKC').match(/\d[\d\-\s()]*\d/g) || [])) {
+      const d = normDigits(g);
+      if (byDigits.has(d)) return { digits: d, exact: byDigits.get(d), partial: [] };
     }
-    return { digits, exact, partial };
+    return { digits, exact: [], partial: [] };
   }
 
   const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  function render(res, label) {
-    const recs = res.exact.length ? res.exact : res.partial;
+  // ---------- 登録一覧（端末内に保存） ----------
+  const REG_KEY = 'phoneLookup.registered.v1';
+  let regs = [];   // {digits, tel, name, dept, at}
+  try { regs = JSON.parse(localStorage.getItem(REG_KEY) || '[]'); } catch (e) { regs = []; }
+  const saveRegs = () => { try { localStorage.setItem(REG_KEY, JSON.stringify(regs)); } catch (e) {} };
+  const hhmm = (ms) => { const d = new Date(ms); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+
+  function register(recs) {
+    const at = Date.now();
+    for (const r of recs) if (!regs.some(x => x.digits === r.digits && x.name === r.name)) {
+      regs.unshift({ digits: r.digits, tel: r.tel, name: r.name, dept: r.dept, at });
+    }
+    saveRegs(); renderRegs();
+  }
+
+  let pendingDel = null, pendingTimer = 0;
+  function renderRegs() {
+    // 部署ごとの登録台数
+    if (book.length) {
+      const total = new Map(), done = new Map();
+      for (const r of book) total.set(r.dept || '（部署なし）', (total.get(r.dept || '（部署なし）') || 0) + 1);
+      const regSet = new Set(regs.map(r => r.digits + '|' + r.name));
+      for (const r of book) if (regSet.has(r.digits + '|' + r.name)) done.set(r.dept || '（部署なし）', (done.get(r.dept || '（部署なし）') || 0) + 1);
+      const sum = [...done.values()].reduce((a, b) => a + b, 0);
+      $('progress').innerHTML = `<h2><span>部署ごとの登録台数（合計 ${sum}/${book.length}台）</span></h2>` +
+        [...total.entries()].map(([k, n]) => { const d = done.get(k) || 0;
+          return `<div class="bar${d === n ? ' done' : ''}"><span>${esc(k)}</span><span class="n">${d}/${n}台</span></div>`; }).join('');
+    } else {
+      $('progress').innerHTML = '';
+    }
+    if (!regs.length) { $('regs').innerHTML = ''; return; }
+    $('regs').innerHTML = `<h2><span>登録一覧（${regs.length}件・新しい順）</span><button data-clear="1"${pendingDel === 'all' ? ' class="confirm"' : ''}>${pendingDel === 'all' ? '本当に全件消去' : '全件消去'}</button></h2><ol>` +
+      regs.map((r, i) => `<li><span class="t">${hhmm(r.at)}</span><span class="v">${esc(r.dept)} ${esc(r.name)}<br>${esc(r.tel)}</span>` +
+        `<button data-del="${i}"${pendingDel === i ? ' class="confirm"' : ''}>${pendingDel === i ? '取消する' : '取消'}</button></li>`).join('') + '</ol>';
+  }
+  // 取消・全件消去は2回押しで確定（3秒で元に戻る）
+  $('regs').addEventListener('click', (e) => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const key = btn.dataset.clear ? 'all' : Number(btn.dataset.del);
+    clearTimeout(pendingTimer);
+    if (pendingDel === key) {
+      if (key === 'all') regs = []; else regs.splice(key, 1);
+      pendingDel = null; saveRegs();
+    } else {
+      pendingDel = key;
+      pendingTimer = setTimeout(() => { pendingDel = null; renderRegs(); }, 3000);
+    }
+    renderRegs();
+  });
+
+  // 結果の表示。mode: 'camera'（登録/やり直しボタン付き）, 'other'（登録ボタンのみ）
+  function render(res, label, mode) {
+    const recs = res.exact;
     let html = `<div class="read">${esc(label)}：${esc(res.digits || '（数字なし）')}</div>`;
+    let canReg = false;
     if (recs.length) {
       for (const r of recs) {
-        html += `<div class="card${res.exact.length ? '' : ' partial'}">` +
-          (res.exact.length ? '' : '<div class="tag">一部一致</div>') +
+        const done = regs.find(x => x.digits === r.digits && x.name === r.name);
+        if (!done) canReg = true;
+        html += `<div class="card${done ? ' dup' : ''}">` +
           `<div class="dept">${esc(r.dept || '（部署なし）')}</div>` +
           `<div class="name">${esc(r.name || '（名前なし）')}</div>` +
-          `<div class="tel">${esc(r.tel)}</div></div>`;
+          `<div class="tel">${esc(r.tel)}</div>` +
+          (done ? `<div class="dupmsg">登録済み（${hhmm(done.at)}に登録）</div>` : '') + '</div>';
       }
     } else if (res.digits) {
-      html += '<div class="none">未登録の番号です</div>';
+      html += '<div class="none ng">CSVにない番号です</div>';
     }
+    const btns = [];
+    if (canReg) btns.push('<button data-act="reg">登録</button>');
+    if (mode === 'camera') btns.push('<button data-act="retry" class="secondary">やり直し</button>');
+    if (btns.length) html += `<div class="actions">${btns.join('')}</div>`;
     $('result').innerHTML = html;
+    currentRes = res;
     return recs.length > 0;
   }
+  let currentRes = null;
+  $('result').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]'); if (!btn) return;
+    if (btn.dataset.act === 'reg' && currentRes) {
+      register(currentRes.exact.filter(r => !regs.some(x => x.digits === r.digits && x.name === r.name)));
+      if (navigator.vibrate) navigator.vibrate(40);
+      if (running && frozen) unfreeze();
+      else { render(currentRes, '登録しました', 'other'); }
+    } else if (btn.dataset.act === 'retry') {
+      if (running && frozen) unfreeze();
+    }
+  });
 
   $('manual').addEventListener('input', (e) => {
     const v = e.target.value;
     if (!normDigits(v)) { $('result').innerHTML = '<div class="none">ここに結果が表示されます。</div>'; return; }
     if (!book.length) { $('result').innerHTML = '<div class="none">先にCSVを読み込んでください</div>'; return; }
-    render(lookup(v), '手入力');
+    render(lookup(v), '手入力', 'other');
   });
 
   // ---------- OCR ----------
@@ -280,14 +359,12 @@
   const stage = $('stage');
   let stream = null, track = null, running = false, frozen = false, busyPhoto = false;
   let prevDigits = '', wakeLock = null, torchOn = false;
-  const history = [];
 
   function updateButtons() {
     const ok = !!(worker && book.length);
     $('camBtn').disabled = !ok;
     $('photo').disabled = !ok || busyPhoto;
     $('photoLbl').setAttribute('aria-disabled', String(!ok || busyPhoto));
-    $('nextBtn').disabled = !frozen;
   }
 
   function setupTrackControls() {
@@ -381,28 +458,14 @@
     return cv;
   }
 
-  function addHistory(res) {
-    const recs = res.exact.length ? res.exact : res.partial;
-    const now = new Date();
-    const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-    const v = recs.length
-      ? recs.map(r => `${r.dept} ${r.name}（${r.tel}）`).join(' / ') + (res.exact.length ? '' : ' ※一部一致')
-      : `未登録 ${res.digits}`;
-    if (history.length && history[0].v === v) return;
-    history.unshift({ t, v, ng: !recs.length });
-    history.length = Math.min(history.length, 10);
-    $('history').innerHTML = '<h2>読み取り履歴（新しい順・最大10件）</h2><ol>' +
-      history.map(h => `<li${h.ng ? ' class="ng"' : ''}><span class="t">${h.t}</span><span class="v">${esc(h.v)}</span></li>`).join('') + '</ol>';
-  }
-
   function freeze(res) {
     frozen = true;
-    const hit = render(res, '読み取り');
+    const hit = render(res, '読み取り', 'camera');
+    const dup = hit && res.exact.every(r => regs.some(x => x.digits === r.digits && x.name === r.name));
     stage.classList.add('frozen');
-    stage.classList.toggle('nomatch', !hit);
-    if (!hit) $('result').innerHTML += '<div class="none">番号が違う場合は、画面をタップして読み直してください。</div>';
-    addHistory(res);
-    if (navigator.vibrate) navigator.vibrate(hit ? 80 : [60, 60, 60]);
+    stage.classList.toggle('nomatch', !hit || dup);
+    $('frozenLabel').textContent = hit && !dup ? '「登録」か「やり直し」を選んでください' : '「やり直し」で次を読みます';
+    if (navigator.vibrate) navigator.vibrate(hit && !dup ? 80 : [60, 60, 60]);
     updateButtons();
   }
 
@@ -413,24 +476,43 @@
     updateButtons();
   }
 
-  stage.addEventListener('click', () => { if (frozen) unfreeze(); });
-  $('nextBtn').addEventListener('click', () => { if (frozen) unfreeze(); });
   $('stopBtn').addEventListener('click', stopCamera);
   document.addEventListener('visibilitychange', () => { if (document.hidden && running) stopCamera(); });
+
+  // 数字を含む単語が枠の左右の端に接していたら「見切れ」とみなす
+  function isCutOff(data, width) {
+    const words = [];
+    const walk = (n) => {
+      if (!n || typeof n !== 'object') return;
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (n.words) { walk(n.words); return; }
+      if (n.bbox && typeof n.text === 'string' && /\d/.test(n.text)) { words.push(n.bbox); return; }
+      for (const k of ['blocks', 'paragraphs', 'lines']) if (n[k]) walk(n[k]);
+    };
+    walk(data.blocks);
+    if (!words.length) return false;
+    const x0 = Math.min(...words.map(b => b.x0)), x1 = Math.max(...words.map(b => b.x1));
+    const m = Math.max(3, width * 0.015);
+    return x0 <= m || x1 >= width - m;
+  }
 
   async function loop() {
     while (running) {
       if (frozen || video.readyState < 2) { await new Promise(r => setTimeout(r, 150)); continue; }
       try {
         const src = grabGuide();
-        const { data } = await worker.recognize(src);
+        const { data } = await worker.recognize(src, {}, { text: true, blocks: true });
         if (!running || frozen) continue;
         const text = (data.text || '').trim();
         const res = lookup(text);
+        const cut = isCutOff(data, src.width);
         if (res.exact.length) {
-          freeze(res);                                   // 登録番号と完全一致 → すぐ固定
-        } else if (res.digits.length >= 4 && res.digits === prevDigits) {
-          freeze(res);                                   // 同じ数字を2回続けて読んだ → 一部一致/未登録として固定
+          freeze(res);                                   // CSVの番号と完全一致 → すぐ固定
+        } else if (cut) {
+          prevDigits = '';
+          $('result').innerHTML = `<div class="read">読み取り中：${esc(res.digits)}</div><div class="none">番号全体を枠に入れてください</div>`;
+        } else if (telLengths.has(res.digits.length) && res.digits === prevDigits) {
+          freeze(res);                                   // CSVと同じ桁数を2回続けて同じに読んだ → 未登録として固定
         } else {
           prevDigits = res.digits;
           $('result').innerHTML = res.digits.length >= 3
@@ -489,11 +571,11 @@
         readDigits = collect(data.text || '', found) || readDigits;
         if (found.exact.size) break;
       }
-      const res = { digits: readDigits, exact: [...found.exact], partial: found.exact.size ? [] : [...found.partial] };
-      if (!res.exact.length && !res.partial.length && !readDigits) {
+      const res = { digits: readDigits, exact: [...found.exact], partial: [] };
+      if (!res.exact.length && !readDigits) {
         $('result').innerHTML = '<div class="none">番号を読み取れませんでした。番号を大きく、まっすぐ写して撮り直してください。</div>';
       } else {
-        if (render(res, '写真') && navigator.vibrate) navigator.vibrate(80);
+        if (render(res, '写真', 'other') && navigator.vibrate) navigator.vibrate(80);
       }
     } catch (e) {
       console.error(e);
@@ -514,6 +596,7 @@
     }
   });
 
+  renderRegs();
   initOcr().then(updateButtons).catch((e) => {
     console.error(e);
     $('ocrMsg').className = 'msg err';
@@ -521,7 +604,7 @@
   });
 
   // テスト用フック
-  window.__app = { lookup, get frozen() { return frozen; }, get bookSize() { return book.length; }, get ready() { return !!worker; } };
+  window.__app = { lookup, isCutOff, get frozen() { return frozen; }, get regs() { return regs; }, get bookSize() { return book.length; }, get ready() { return !!worker; } };
 })();
 </script>
 </body>
