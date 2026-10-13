@@ -209,16 +209,27 @@
   });
 
   // 読み取った文字列から登録番号を探す（完全一致のみ）
+  // 表の罫線や隣の列の数字が混ざっても拾えるよう、区切りごと・連結・番号丸ごとの包含を順に確かめる
   function lookup(raw) {
-    const digits = normDigits(raw);
-    if (!digits) return { digits, exact: [], partial: [] };
-    if (byDigits.has(digits)) return { digits, exact: byDigits.get(digits), partial: [] };
-    // 数字のかたまりごとにも完全一致を確認（余計な文字を拾った場合）
-    for (const g of (raw.normalize('NFKC').match(/\d[\d\-\s()]*\d/g) || [])) {
-      const d = normDigits(g);
-      if (byDigits.has(d)) return { digits: d, exact: byDigits.get(d), partial: [] };
+    const t = (raw || '').normalize('NFKC');
+    const digits = normDigits(t);
+    const none = (d) => ({ digits: d, exact: [], partial: [] });
+    if (!digits) return none(digits);
+    const hit = (d) => ({ digits: d, exact: byDigits.get(d), partial: [] });
+    if (byDigits.has(digits)) return hit(digits);
+    const toks = t.split(/[\s|]+/).map(normDigits).filter(Boolean);
+    let cand = '';
+    for (let i = 0; i < toks.length; i++) {
+      let joined = '';
+      for (let j = i; j < Math.min(toks.length, i + 4); j++) {
+        joined += toks[j];
+        if (byDigits.has(joined)) return hit(joined);
+        if (!cand && joined[0] === '0' && telLengths.has(joined.length)) cand = joined;
+      }
     }
-    return { digits, exact: [], partial: [] };
+    // 番号丸ごと（10桁以上）が数字列に含まれていれば一致とみなす
+    for (const k of byDigits.keys()) if (k.length >= 10 && digits.includes(k)) return hit(k);
+    return none(cand || digits);
   }
 
   const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -486,7 +497,7 @@
       if (!n || typeof n !== 'object') return;
       if (Array.isArray(n)) { n.forEach(walk); return; }
       if (n.words) { walk(n.words); return; }
-      if (n.bbox && typeof n.text === 'string' && /\d/.test(n.text)) { words.push(n.bbox); return; }
+      if (n.bbox && typeof n.text === 'string' && normDigits(n.text).length >= 4) { words.push(n.bbox); return; }
       for (const k of ['blocks', 'paragraphs', 'lines']) if (n[k]) walk(n[k]);
     };
     walk(data.blocks);
