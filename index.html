@@ -35,6 +35,8 @@
   #stage.frozen #guideLabel { display:none; }
   #camCtl { display:none; margin-top:8px; }
   #camCtl.on { display:flex; }
+  .chk { display:flex; align-items:center; gap:6px; font-size:15px; flex:1 1 100%; }
+  .chk input { width:22px; height:22px; }
   #zoomWrap { display:none; align-items:center; gap:6px; font-size:13px; color:var(--sub); flex:1 1 140px; }
   #zoomWrap.on { display:flex; }
   #zoom { flex:1; }
@@ -94,6 +96,7 @@
 <div id="camCtl" class="row">
   <button id="torchBtn" class="secondary" hidden>ライト</button>
   <button id="stopBtn" class="secondary">停止</button>
+  <label class="chk"><input type="checkbox" id="skipDone" checked>登録済みは読み飛ばす</label>
   <label id="zoomWrap">ズーム<input id="zoom" type="range"></label>
 </div>
 
@@ -113,6 +116,7 @@
   <p>カメラで読み取ると、CSVにある番号が見つかった時点で映像が止まります。「登録」で登録一覧に追加して次へ、「やり直し」で登録せずに次へ進みます。</p>
   <p>枠の色：緑＝CSVにあり、赤＝CSVにない番号（CSVと同じ桁数の番号を2回続けて同じように読めたときだけ止まります）。番号が枠からはみ出していると止まりません。</p>
   <p>登録一覧はこのスマホのブラウザ内に保存され、ページを閉じても残ります。「全件消去」で消せます。</p>
+  <p>「登録済みは読み飛ばす」がオンのときは、登録済みの番号を読んでも止まりません。オフにすると「登録済み」と赤枠で表示して止まります。</p>
   <p>番号が小さいときは、近づけるかズームを使ってください。暗いときは「ライト」が使える機種もあります。</p>
   <p>「写真で読み取る」は撮った写真から番号を探します。写真はこのアプリでは保存しません（カメラアプリによってはギャラリーに控えが残る場合があります）。</p>
 </details>
@@ -517,7 +521,12 @@
         const text = (data.text || '').trim();
         const res = lookup(text);
         const cut = isCutOff(data, src.width);
-        if (res.exact.length) {
+        const done = res.exact.length && res.exact.every(r => regs.some(x => x.digits === r.digits && x.name === r.name));
+        if (done && $('skipDone').checked) {
+          prevDigits = '';                               // 登録済みは止めずに読み飛ばす
+          const at = regs.find(x => x.digits === res.digits);
+          $('result').innerHTML = `<div class="read">読み取り中：${esc(res.digits)}</div><div class="none">登録済み（${at ? hhmm(at.at) : ''}に登録）のため読み飛ばしました</div>`;
+        } else if (res.exact.length) {
           freeze(res);                                   // CSVの番号と完全一致 → すぐ固定
         } else if (cut) {
           prevDigits = '';
