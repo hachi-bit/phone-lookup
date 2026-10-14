@@ -182,36 +182,56 @@
     return rows.filter(r => r.some(v => v.trim() !== ''));
   }
 
+  // Excelで先頭の0が消えた番号（9桁・10桁で0以外から始まる）は0を補う
+  function fixDigits(d) {
+    return (d && d[0] !== '0' && (d.length === 9 || d.length === 10)) ? '0' + d : d;
+  }
+  // 携帯（11桁）は 090-1234-5678 の形で表示する
+  function formatTel(d) {
+    return /^0[5789]0\d{8}$/.test(d) ? `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}` : d;
+  }
+
   function loadBook(rows) {
-    let iTel = 0, iName = 1, iDept = 2, start = 0;
     const head = rows[0] ? rows[0].map(v => v.trim()) : [];
+    const cols = Math.max(...rows.map(r => r.length));
+    // 見出しがない場合：2列なら「番号,部署」、3列以上なら「番号,名前,部署」
+    let iTel = 0, iName = cols >= 3 ? 1 : -1, iDept = cols >= 3 ? 2 : 1, start = 0;
     if (head.length && normDigits(head.join('')).length === 0) {
       start = 1;
-      const find = (re, d) => { const i = head.findIndex(h => re.test(h)); return i >= 0 ? i : d; };
-      iTel = find(/電話|番号|TEL|tel|内線/, 0);
-      iName = find(/名前|氏名|名|name/i, 1);
-      iDept = find(/部署|所属|部|課|dept/i, 2);
+      const used = new Set();
+      const find = (re) => { const i = head.findIndex((h, k) => !used.has(k) && re.test(h)); if (i >= 0) used.add(i); return i; };
+      iTel = find(/電話|番号|TEL|携帯|内線/i);
+      iDept = find(/部署|所属|拠点|部|課|dept/i);
+      iName = find(/名前|氏名|使用者|担当|name/i);
+      if (iTel < 0) iTel = [0, 1, 2].find(k => !used.has(k));
+      if (iDept < 0) iDept = cols >= 3 ? 2 : 1;
     }
     book = []; byDigits = new Map();
+    let fixed = 0;
     for (let r = start; r < rows.length; r++) {
       const v = rows[r];
-      const rec = { tel: (v[iTel] || '').trim(), name: (v[iName] || '').trim(), dept: (v[iDept] || '').trim() };
-      rec.digits = normDigits(rec.tel);
-      if (!rec.digits) continue;
+      const rec = { tel: (v[iTel] || '').trim(), name: iName >= 0 ? (v[iName] || '').trim() : '', dept: (v[iDept] || '').trim() };
+      const raw = normDigits(rec.tel);
+      if (!raw) continue;
+      rec.digits = fixDigits(raw);
+      if (rec.digits !== raw) { fixed++; rec.tel = formatTel(rec.digits); }
+      else if (!/[-()\s]/.test(rec.tel)) rec.tel = formatTel(rec.digits);
       book.push(rec);
       if (!byDigits.has(rec.digits)) byDigits.set(rec.digits, []);
       byDigits.get(rec.digits).push(rec);
     }
     telLengths = new Set(book.map(r => r.digits.length));
+    return { fixed, hasName: iName >= 0 };
   }
 
   $('csv').addEventListener('change', async (ev) => {
     const f = ev.target.files[0];
+    ev.target.value = '';   // 同じファイルを選び直しても読み込めるように
     if (!f) return;
     try {
-      loadBook(parseCsv(decodeCsv(await f.arrayBuffer())));
+      const info = loadBook(parseCsv(decodeCsv(await f.arrayBuffer())));
       $('csvMsg').className = 'msg';
-      $('csvMsg').textContent = `「${f.name}」から ${book.length} 件を読み込みました。`;
+      $('csvMsg').textContent = `「${f.name}」から ${book.length} 件を読み込みました。` + (info.fixed ? `（先頭の0が抜けていた ${info.fixed} 件は0を補いました）` : '');
       updateButtons();
       renderRegs();
     } catch (e) {
@@ -307,7 +327,7 @@
         if (!done) canReg = true;
         html += `<div class="card${done ? ' dup' : ''}">` +
           `<div class="dept">${esc(r.dept || '（部署なし）')}</div>` +
-          `<div class="name">${esc(r.name || '（名前なし）')}</div>` +
+          (r.name ? `<div class="name">${esc(r.name)}</div>` : '') +
           `<div class="tel">${esc(r.tel)}</div>` +
           (done ? `<div class="dupmsg">登録済み（${hhmm(done.at)}に登録）</div>` : '') + '</div>';
       }
