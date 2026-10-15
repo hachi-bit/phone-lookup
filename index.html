@@ -406,7 +406,7 @@
   const sctx = snap.getContext('2d');
   const stage = $('stage');
   let stream = null, track = null, running = false, frozen = false, busyPhoto = false;
-  let prevDigits = '', wakeLock = null, torchOn = false;
+  let prevDigits = '', wakeLock = null, torchOn = false, suspended = false;
 
   function updateButtons() {
     const ok = !!(worker && book.length);
@@ -445,10 +445,7 @@
     $('torchBtn').classList.toggle('on', torchOn);
   });
 
-  async function startCamera() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('このブラウザ（またはこのファイルの開き方）ではカメラを使えません。「写真で読み取る」を使ってください。');
-    }
+  async function openStream() {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
@@ -456,22 +453,33 @@
     track = stream.getVideoTracks()[0];
     video.srcObject = stream;
     await video.play();
+    setupTrackControls();
+    try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
+  }
+
+  function closeStream() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null; track = null;
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  }
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('このブラウザ（またはこのファイルの開き方）ではカメラを使えません。「写真で読み取る」を使ってください。');
+    }
+    await openStream();
     stage.classList.add('on');
     $('camCtl').classList.add('on');
     $('camBtn').hidden = true;
     $('preview').style.display = 'none';
-    setupTrackControls();
-    try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; }
     running = true;
     unfreeze();
     loop();
   }
 
   function stopCamera() {
-    running = false; frozen = false;
-    if (stream) stream.getTracks().forEach(t => t.stop());
-    stream = null; track = null;
-    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+    running = false; frozen = false; suspended = false;
+    closeStream();
     stage.classList.remove('on', 'frozen', 'nomatch', 'dup');
     $('camCtl').classList.remove('on');
     $('camBtn').hidden = false;
@@ -527,7 +535,23 @@
   }
 
   $('stopBtn').addEventListener('click', stopCamera);
-  document.addEventListener('visibilitychange', () => { if (document.hidden && running) stopCamera(); });
+  // ファイル選択などで画面が裏に回ったらカメラだけ一時停止し、戻ったら再開する。
+  // 読み取り結果（固定表示・登録/やり直しボタン）はそのまま残す。
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden && running && !suspended) {
+      suspended = true;
+      closeStream();
+    } else if (!document.hidden && suspended) {
+      try {
+        await openStream();
+        suspended = false;
+      } catch (e) {
+        stopCamera();
+        $('ocrMsg').className = 'msg err';
+        $('ocrMsg').textContent = 'カメラを再開できませんでした：' + (e.message || e.name);
+      }
+    }
+  });
 
   // 数字を含む単語が枠の左右の端に接していたら「見切れ」とみなす
   function isCutOff(data, width) {
@@ -548,7 +572,7 @@
 
   async function loop() {
     while (running) {
-      if (frozen || video.readyState < 2) { await new Promise(r => setTimeout(r, 150)); continue; }
+      if (frozen || suspended || video.readyState < 2) { await new Promise(r => setTimeout(r, 150)); continue; }
       try {
         const src = grabGuide();
         const { data } = await worker.recognize(src, {}, { text: true, blocks: true });
