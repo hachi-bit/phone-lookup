@@ -41,6 +41,9 @@
   #zoomWrap { display:none; align-items:center; gap:6px; font-size:13px; color:var(--sub); flex:1 1 140px; }
   #zoomWrap.on { display:flex; }
   #zoom { flex:1; }
+  #scaleWrap { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--sub); flex:1 1 100%; }
+  #scaleMode { flex:1; font-size:15px; padding:6px; }
+  .modeinfo { font-size:12px; color:var(--sub); margin-top:6px; }
   #result { margin-top:10px; background:var(--panel); border-radius:12px; padding:14px; min-height:100px; }
   #result .read { font-size:13px; color:var(--sub); word-break:break-all; }
   #result.st-ok { background:var(--okbg); box-shadow:inset 0 0 0 2px var(--ok); }
@@ -108,6 +111,7 @@
   <button id="torchBtn" class="secondary" hidden>ライト</button>
   <button id="stopBtn" class="secondary">停止</button>
   <label class="chk"><input type="checkbox" id="skipDone" checked>登録済みは読み飛ばす</label>
+  <label id="scaleWrap">読み取り方式（比較用）<select id="scaleMode"><option value="full">縮小なし</option><option value="small">縮小あり</option><option value="alt">交互</option></select></label>
   <label id="zoomWrap">ズーム<input id="zoom" type="range"></label>
 </div>
 <div id="progress"></div>
@@ -487,6 +491,9 @@
   }
 
   // 画面上のガイド枠に対応する映像部分を切り出す（object-fit: cover を考慮）
+  // 比較用：枠内を縮小して読むか（full=元の解像度、small=高さ160px、alt=1回ごとに交互）
+  const MODE_NAME = { full: '縮小なし', small: '縮小あり' };
+  let altFlip = false, lastMode = 'full', lastMs = 0;
   function grabGuide() {
     const vw = video.videoWidth, vh = video.videoHeight;
     // 固定表示用に今のフレームを保存（OCRしたフレームと表示が一致するように）
@@ -499,7 +506,9 @@
     const sx = (g.left - st.left + offX) / scale, sy = (g.top - st.top + offY) / scale;
     const sw = g.width / scale, sh = g.height / scale;
     // 小さい番号も潰れないよう、枠内はできるだけ元の解像度のまま読む（上限400px）
-    const outH = Math.min(400, Math.max(160, Math.round(sh))), outW = Math.round(sw * outH / sh);
+    const sel = $('scaleMode').value;
+    lastMode = sel === 'alt' ? ((altFlip = !altFlip) ? 'full' : 'small') : sel;
+    const outH = lastMode === 'small' ? 160 : Math.min(400, Math.max(160, Math.round(sh))), outW = Math.round(sw * outH / sh);
     cv.width = outW; cv.height = outH;
     ctx.drawImage(snap, sx, sy, sw, sh, 0, 0, outW, outH);
     // グレースケール + コントラスト強調
@@ -518,6 +527,7 @@
   function freeze(res) {
     frozen = true;
     const hit = render(res, '読み取り', 'camera');
+    $('result').insertAdjacentHTML('beforeend', `<div class="modeinfo">読み取り方式：${MODE_NAME[lastMode]}（${lastMs}ms）</div>`);
     const dup = hit && res.exact.every(r => regs.some(x => x.digits === r.digits && x.name === r.name));
     stage.classList.add('frozen');
     stage.classList.toggle('nomatch', !hit);
@@ -575,7 +585,9 @@
       if (frozen || suspended || video.readyState < 2) { await new Promise(r => setTimeout(r, 150)); continue; }
       try {
         const src = grabGuide();
+        const t0 = performance.now();
         const { data } = await worker.recognize(src, {}, { text: true, blocks: true });
+        lastMs = Math.round(performance.now() - t0);
         if (!running || frozen) continue;
         const text = (data.text || '').trim();
         const res = lookup(text);
@@ -584,18 +596,18 @@
         if (done && $('skipDone').checked) {
           prevDigits = '';                               // 登録済みは止めずに読み飛ばす
           const at = regs.find(x => x.digits === res.digits);
-          live(`<div class="read">読み取り中：${esc(res.digits)}</div><div class="skipmsg">登録済み（${at ? hhmm(at.at) : ''}に登録）のため読み飛ばしました</div>`);
+          live(`<div class="read">読み取り中：${esc(res.digits)}（${MODE_NAME[lastMode]}・${lastMs}ms）</div><div class="skipmsg">登録済み（${at ? hhmm(at.at) : ''}に登録）のため読み飛ばしました</div>`);
         } else if (res.exact.length) {
           freeze(res);                                   // CSVの番号と完全一致 → すぐ固定
         } else if (cut) {
           prevDigits = '';
-          live(`<div class="read">読み取り中：${esc(res.digits)}</div><div class="none">番号全体を枠に入れてください</div>`);
+          live(`<div class="read">読み取り中：${esc(res.digits)}（${MODE_NAME[lastMode]}・${lastMs}ms）</div><div class="none">番号全体を枠に入れてください</div>`);
         } else if (telLengths.has(res.digits.length) && res.digits === prevDigits) {
           freeze(res);                                   // CSVと同じ桁数を2回続けて同じに読んだ → 未登録として固定
         } else {
           prevDigits = res.digits;
           live(res.digits.length >= 3
-            ? `<div class="read">読み取り中：${esc(res.digits)}</div><div class="none">番号を枠に合わせてください…</div>`
+            ? `<div class="read">読み取り中：${esc(res.digits)}（${MODE_NAME[lastMode]}・${lastMs}ms）</div><div class="none">番号を枠に合わせてください…</div>`
             : '<div class="none">番号を枠に合わせてください…</div>');
         }
       } catch (e) {
