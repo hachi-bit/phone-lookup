@@ -410,7 +410,8 @@
   const sctx = snap.getContext('2d');
   const stage = $('stage');
   let stream = null, track = null, running = false, frozen = false, busyPhoto = false;
-  let prevDigits = '', wakeLock = null, torchOn = false, suspended = false;
+  // 前回読んだ番号（交互モードでも方式ごとに別々に比べる）
+  let prevDigits = { full: '', small: '' }, wakeLock = null, torchOn = false, suspended = false;
 
   function updateButtons() {
     const ok = !!(worker && book.length);
@@ -538,7 +539,7 @@
   }
 
   function unfreeze() {
-    frozen = false; prevDigits = '';
+    frozen = false; prevDigits = { full: '', small: '' };
     stage.classList.remove('frozen', 'nomatch', 'dup');
     live('<div class="none">番号を枠に合わせてください…</div>');
     updateButtons();
@@ -594,18 +595,18 @@
         const cut = isCutOff(data, src.width);
         const done = res.exact.length && res.exact.every(r => regs.some(x => x.digits === r.digits && x.name === r.name));
         if (done && $('skipDone').checked) {
-          prevDigits = '';                               // 登録済みは止めずに読み飛ばす
+          prevDigits[lastMode] = '';                     // 登録済みは止めずに読み飛ばす
           const at = regs.find(x => x.digits === res.digits);
           live(`<div class="read">読み取り中：${esc(res.digits)}（${MODE_NAME[lastMode]}・${lastMs}ms）</div><div class="skipmsg">登録済み（${at ? hhmm(at.at) : ''}に登録）のため読み飛ばしました</div>`);
         } else if (res.exact.length) {
           freeze(res);                                   // CSVの番号と完全一致 → すぐ固定
         } else if (cut) {
-          prevDigits = '';
+          prevDigits[lastMode] = '';
           live(`<div class="read">読み取り中：${esc(res.digits)}（${MODE_NAME[lastMode]}・${lastMs}ms）</div><div class="none">番号全体を枠に入れてください</div>`);
-        } else if (telLengths.has(res.digits.length) && res.digits === prevDigits) {
+        } else if (telLengths.has(res.digits.length) && res.digits === prevDigits[lastMode]) {
           freeze(res);                                   // CSVと同じ桁数を2回続けて同じに読んだ → 未登録として固定
         } else {
-          prevDigits = res.digits;
+          prevDigits[lastMode] = res.digits;
           live(res.digits.length >= 3
             ? `<div class="read">読み取り中：${esc(res.digits)}（${MODE_NAME[lastMode]}・${lastMs}ms）</div><div class="none">番号を枠に合わせてください…</div>`
             : '<div class="none">番号を枠に合わせてください…</div>');
