@@ -565,20 +565,29 @@
   });
 
   // 数字を含む単語が枠の左右の端に接していたら「見切れ」とみなす
-  function isCutOff(data, width) {
-    const words = [];
+  // 読み取った番号（digits）の最初と最後の数字が枠の端に触れていたら見切れとみなす。
+  // 番号以外の文字（表のNo.や隣の文字など）が端にあっても見切れにはしない。
+  function isCutOff(data, width, digits) {
+    const words = [], syms = [];   // syms: 数字1文字ずつ {d, bbox}
     const walk = (n) => {
       if (!n || typeof n !== 'object') return;
       if (Array.isArray(n)) { n.forEach(walk); return; }
       if (n.words) { walk(n.words); return; }
-      if (n.bbox && typeof n.text === 'string' && normDigits(n.text).length >= 4) { words.push(n.bbox); return; }
+      if (n.symbols) {                                   // 単語
+        if (normDigits(n.text).length >= 4) words.push(n.bbox);
+        for (const sy of n.symbols) { const d = normDigits(sy.text); if (sy.bbox && d.length === 1) syms.push({ d, bbox: sy.bbox }); }
+        return;
+      }
       for (const k of ['blocks', 'paragraphs', 'lines']) if (n[k]) walk(n[k]);
     };
     walk(data.blocks);
-    if (!words.length) return false;
-    const x0 = Math.min(...words.map(b => b.x0)), x1 = Math.max(...words.map(b => b.x1));
     const m = Math.max(3, width * 0.015);
-    return x0 <= m || x1 >= width - m;
+    const edge = (x0, x1) => x0 <= m || x1 >= width - m;
+    // 文字ごとの位置が取れれば、番号そのものの両端だけを見る
+    const idx = digits && digits.length >= 4 ? syms.map(x => x.d).join('').indexOf(digits) : -1;
+    if (idx >= 0) return edge(syms[idx].bbox.x0, syms[idx + digits.length - 1].bbox.x1);
+    if (!words.length) return false;
+    return edge(Math.min(...words.map(b => b.x0)), Math.max(...words.map(b => b.x1)));
   }
 
   async function loop() {
@@ -592,7 +601,7 @@
         if (!running || frozen) continue;
         const text = (data.text || '').trim();
         const res = lookup(text);
-        const cut = isCutOff(data, src.width);
+        const cut = isCutOff(data, src.width, res.digits);
         const done = res.exact.length && res.exact.every(r => regs.some(x => x.digits === r.digits && x.name === r.name));
         if (done && $('skipDone').checked) {
           prevDigits[lastMode] = '';                     // 登録済みは止めずに読み飛ばす
@@ -600,11 +609,11 @@
           live(`<div class="read">読み取り中：${esc(res.digits)}（${MODE_NAME[lastMode]}・${lastMs}ms）</div><div class="skipmsg">登録済み（${at ? hhmm(at.at) : ''}に登録）のため読み飛ばしました</div>`);
         } else if (res.exact.length) {
           freeze(res);                                   // CSVの番号と完全一致 → すぐ固定
+        } else if (res.digits[0] === '0' && telLengths.has(res.digits.length) && res.digits === prevDigits[lastMode]) {
+          freeze(res);                                   // CSVと同じ桁数を2回続けて同じに読んだ → 未登録として固定（見切れ判定はしない）
         } else if (cut) {
-          prevDigits[lastMode] = '';
+          prevDigits[lastMode] = res.digits;             // 見切れ表示は案内だけ。カウントは消さない
           live(`<div class="read">読み取り中：${esc(res.digits)}（${MODE_NAME[lastMode]}・${lastMs}ms）</div><div class="none">番号全体を枠に入れてください</div>`);
-        } else if (telLengths.has(res.digits.length) && res.digits === prevDigits[lastMode]) {
-          freeze(res);                                   // CSVと同じ桁数を2回続けて同じに読んだ → 未登録として固定
         } else {
           prevDigits[lastMode] = res.digits;
           live(res.digits.length >= 3
